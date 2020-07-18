@@ -1,7 +1,8 @@
 
 ## Notes about this fork by FreeJHack:
 With OpenCore 0.6.0 and Mojave 10.14.6, you can have an occasional (or repetitive) backtrace with the last FakeSMC v.1800.
-I've patched the kext importing also the two missing properties from OpenCore.
+I've patched the kext importing also the two missing properties `oem-vendor` & `oem-product` from OpenCore.
+You need to set ExposeSensitiveData->Expose OEM information as a set of UEFI variables = true, in Misc->Security.
 
 # HWSensors
 
