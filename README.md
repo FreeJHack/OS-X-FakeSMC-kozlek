@@ -1,3 +1,8 @@
+
+## Notes about this fork by FreeJHack:
+With OpenCore 0.6.0 and Mojave 10.14.6, you can have an occasional (or repetitive) backtrace with the last FakeSMC v.1800.
+I've patched the kext importing also the two missing properties from OpenCore.
+
 # HWSensors
 
 HWSensors is a software bundle that includes drivers and applications that allow you to access information from hardware sensors available on your Mac.
