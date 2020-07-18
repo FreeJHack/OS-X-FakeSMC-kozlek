@@ -236,7 +236,7 @@ FakeSMCKey *FakeSMCKeyStore::getKey(const char *name)
             }
         }
 
-        OSSafeRelease(iterator);
+        OSSafeReleaseNULL(iterator);
     }
     unlockAccess();
 
@@ -431,8 +431,8 @@ void FakeSMCKeyStore::saveKeyToNVRAM(FakeSMCKey *key)
         else
             nvram->setProperty(tempName, OSData::withBytes(key->getValue(), key->getSize()));
 
-        OSSafeRelease(tempName);
-        OSSafeRelease(nvram);
+        OSSafeReleaseNULL(tempName);
+        OSSafeReleaseNULL(nvram);
     }
     
     unlockAccess();
@@ -515,13 +515,16 @@ UInt32 FakeSMCKeyStore::loadKeysFromNVRAM()
 
 bool FakeSMCKeyStore::initAndStart(IOService *provider, OSDictionary *properties)
 {
+    HWSensorsDebugLog("FakeSMCKeyStore: initAndStart");
     //HWSensorsDebugLog("init()");
     if (!provider || !init())
         return false;
     
+    HWSensorsDebugLog("FakeSMCKeyStore: attach");
     //HWSensorsDebugLog("attach()");
     attach(provider);
     
+    HWSensorsDebugLog("FakeSMCKeyStore: Start");
     //HWSensorsDebugLog("start()");
     if (!start(provider))
         return false;
@@ -552,15 +555,16 @@ bool FakeSMCKeyStore::start(IOService *provider)
 	if (!super::start(provider))
         return false;
 
-
     // Try to obtain OEM info from Clover EFI
+    bool CloverBoot = false;
     if (IORegistryEntry* platformNode = fromPath("/efi/platform", gIODTPlane)) {
-
+        
         if (OSData *data = OSDynamicCast(OSData, platformNode->getProperty("OEMVendor"))) {
             if (OSString *vendor = OSString::withCString((char*)data->getBytesNoCopy())) {
                 if (OSString *manufacturer = getManufacturerNameFromOEMName(vendor)) {
                     this->setProperty(kOEMInfoManufacturer, manufacturer);
-                    OSSafeReleaseNULL(manufacturer);
+                    CloverBoot = true;
+                    //OSSafeReleaseNULL(manufacturer);
                 }
                 //OSSafeReleaseNULL(vendor);
             }
@@ -570,14 +574,58 @@ bool FakeSMCKeyStore::start(IOService *provider)
         if (OSData *data = OSDynamicCast(OSData, platformNode->getProperty("OEMBoard"))) {
             if (OSString *product = OSString::withCString((char*)data->getBytesNoCopy())) {
                 this->setProperty(kOEMInfoProduct, product);
+                CloverBoot = true;
                 //OSSafeReleaseNULL(product);
             }
             //OSSafeReleaseNULL(data);
         }
     }
 
+    //Kernel backtrace fix with OpenCore by FreeJHack
+    if (!CloverBoot) {
+        OSObject * obj = NULL;
+        IORegistryEntry * nvram = NULL;
+        OSDictionary * matching = serviceMatching("IODTNVRAM");
+        if (matching)
+            nvram = OSDynamicCast(IODTNVRAM, waitForMatchingService(matching, 1000000000ULL * 15));
+
+        if (nvram) {
+            HWSensorsInfoLog("Trying OpenCore OEM properties...");
+            bool genNVRAM = (0 == strncmp(nvram->getName(), "AppleNVRAM", sizeof("AppleNVRAM")));
+            if (genNVRAM) {
+                obj = nvram->IORegistryEntry::getProperty("4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:oem-vendor");
+            } else {
+                obj = nvram->getProperty("4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:oem-vendor");
+            }
+            if (obj != NULL) {
+                if (OSData *data = OSDynamicCast(OSData, obj)) {
+                    data->appendByte(0,1);
+                    if (OSString *manufacturer = OSString::withCString((char*)data->getBytesNoCopy())) {
+                        this->setProperty(kOEMInfoManufacturer, manufacturer);
+                        HWSensorsDebugLog("OpenCore OEM-vendor correctly set");
+                    }
+                }
+            }
+            if (genNVRAM) {
+                obj = nvram->IORegistryEntry::getProperty("4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:oem-product");
+            } else {
+                obj = nvram->getProperty("4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:oem-product");
+            }
+            if (obj != NULL) {
+                if (OSData *data = OSDynamicCast(OSData, obj)) {
+                    data->appendByte(0,1);
+                    if (OSString *product = OSString::withCString((char*)data->getBytesNoCopy())) {
+                        this->setProperty(kOEMInfoProduct, product);
+                        HWSensorsDebugLog("OpenCore OEM-product correctly set");
+                    }
+                }
+            }
+            OSSafeReleaseNULL(nvram);
+        }
+    }
+
     if ((!getProperty(kOEMInfoProduct) || !getProperty(kOEMInfoManufacturer)) && !setOemProperties(this)) {
-        HWSensorsErrorLog("failed to get OEM info from Chameleon/Chimera or Clover EFI, platform profiles will be unavailable");
+        HWSensorsErrorLog("failed to get OEM info from Chameleon/Chimera, Clover EFI or OpenCore, platform profiles will be unavailable");
     }
 
     if (OSString *manufacturer = OSDynamicCast(OSString, getProperty(kOEMInfoManufacturer)) ) {
@@ -634,7 +682,6 @@ IOReturn FakeSMCKeyStore::newUserClient(task_t owningTask, void *security_id, UI
 
     return kIOReturnSuccess;
 }
-    
 /*
 IOReturn FakeSMCKeyStore::callPlatformFunction(const OSSymbol *functionName, bool waitForFunction, void *param1, void *param2, void *param3, void *param4 )
 {
